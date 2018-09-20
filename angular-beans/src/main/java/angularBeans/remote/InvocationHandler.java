@@ -1,27 +1,17 @@
-/*
- * AngularBeans, CDI-AngularJS bridge 
- *
- * Copyright (c) 2014, Bessem Hmidi. or third-party contributors as
- * indicated by the @author tags or express copyright attribution
- * statements applied by the authors.
- *
- * This copyrighted material is made available to anyone wishing to use, modify,
- * copy, or redistribute it subject to the terms and conditions of the GNU
- * Lesser General Public License, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
- * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License
- * for more details.
- *
- */
+/* AngularBeans, CDI-AngularJS bridge Copyright (c) 2014, Bessem Hmidi. or third-party contributors as indicated by
+ * the @author tags or express copyright attribution statements applied by the authors. This copyrighted material is
+ * made available to anyone wishing to use, modify, copy, or redistribute it subject to the terms and conditions of the
+ * GNU Lesser General Public License, as published by the Free Software Foundation. This program is distributed in the
+ * hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details. */
 
 /**
- @author Bessem Hmidi
+ * @author Bessem Hmidi
  */
 package angularBeans.remote;
 
-import static angularBeans.util.Constants.GET;
+import static angularBeans.util.Accessors.BOOLEAN_GETTER_PREFIX;
+import static angularBeans.util.Accessors.GETTER_PREFIX;
 
 import java.io.Serializable;
 import java.lang.reflect.InvocationTargetException;
@@ -37,6 +27,9 @@ import java.util.logging.Logger;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
+import javax.servlet.http.HttpServletRequest;
+
+import org.boon.Pair;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -58,508 +51,413 @@ import angularBeans.util.ModelQueryFactory;
 import angularBeans.util.ModelQueryImpl;
 
 /**
+ * AngularBeans RPC main handler.
  * 
- * @author Bassem Hmidi This is the AngularBeans RPC main handler
+ * @author Bassem Hmidi
  */
 
 @SuppressWarnings("serial")
 @ApplicationScoped
 public class InvocationHandler implements Serializable {
 
-	@Inject
-	ByteArrayCache cache;
+   @Inject
+   ByteArrayCache cache;
 
-	@Inject
-	NGLogger logger;
+   @Inject
+   NGLogger logger;
 
-	@Inject
-	AngularBeansUtils util;
+   @Inject
+   AngularBeansUtils util;
 
-	@Inject
-	BeanLocator locator;
+   @Inject
+   BeanLocator locator;
 
-	@Inject
-	ModelQueryFactory modelQueryFactory;
+   @Inject
+   ModelQueryFactory modelQueryFactory;
 
-	static final Map<String, Class> builtInMap = new HashMap<>();
+   static final Map<String, Class> builtInMap = new HashMap<>();
 
-	static final Map<String, Class> arrayTypesMap = new HashMap<>();
+   static {
 
-	static {
+      builtInMap.put("int", Integer.TYPE);
+      builtInMap.put("long", Long.TYPE);
+      builtInMap.put("double", Double.TYPE);
+      builtInMap.put("float", Float.TYPE);
+      builtInMap.put("boolean", Boolean.TYPE);
+      builtInMap.put("char", Character.TYPE);
+      builtInMap.put("byte", Byte.TYPE);
+      builtInMap.put("short", Short.TYPE);
 
-		builtInMap.put("int", Integer.TYPE);
-		builtInMap.put("long", Long.TYPE);
-		builtInMap.put("double", Double.TYPE);
-		builtInMap.put("float", Float.TYPE);
-		builtInMap.put("boolean", Boolean.TYPE);
-		builtInMap.put("char", Character.TYPE);
-		builtInMap.put("byte", Byte.TYPE);
+   }
 
-		builtInMap.put("short", Short.TYPE);
+   public void realTimeInvoke(Object ServiceToInvoque, String methodName, JsonObject params, RealTimeDataReceivedEvent event, long reqID, String UID) {
 
-		arrayTypesMap.put("[I", int[].class);
-		arrayTypesMap.put("[F", float[].class);
-		arrayTypesMap.put("[D", double[].class);
-		arrayTypesMap.put("[J", long[].class);
-		arrayTypesMap.put("[S", short[].class);
-		arrayTypesMap.put("[B", byte[].class);
-		arrayTypesMap.put("[C", char[].class);
-		arrayTypesMap.put("[Z", boolean[].class);
+      NGSessionScopeContext.setCurrentContext(UID);
+      Map<String, Object> returns = new HashMap<>();
+      returns.put("isRT", true);
 
-		arrayTypesMap.put("[Ljava.lang.Long;", Long[].class);
-		arrayTypesMap.put("[Ljava.lang.Double;", Double[].class);
-		arrayTypesMap.put("[Ljava.lang.Integer;", Integer[].class);
-		arrayTypesMap.put("[Ljava.lang.Float;", Float[].class);
-		arrayTypesMap.put("[Ljava.lang.Short;", Short[].class);
-		arrayTypesMap.put("[Ljava.lang.Byte;", Byte[].class);
-		arrayTypesMap.put("[Ljava.lang.Character;", Character[].class);
-		arrayTypesMap.put("[Ljava.lang.Boolean;", Boolean[].class);
-		arrayTypesMap.put("[Ljava.lang.String;", String[].class);
-	}
+      try {
+         genericInvoke(ServiceToInvoque, methodName, params, returns, reqID, UID, null);
 
-	public void realTimeInvoke(Object ServiceToInvoque, String methodName, JsonObject params,
-			RealTimeDataReceivedEvent event, long reqID, String UID) {
+         if (returns.get("mainReturn") != null) {
 
-		NGSessionScopeContext.setCurrentContext(UID);
+            event.getConnection().write(util.getJson(returns), false);
+         }
+      }
+      catch (SecurityException | ClassNotFoundException | IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException e) {
 
-		Map<String, Object> returns = new HashMap<>();
-		// Object mainReturn = null;
+         e.printStackTrace();
+      }
 
-		returns.put("isRT", true);
+   }
 
-		try {
-			genericInvoke(ServiceToInvoque, methodName, params, returns, reqID, UID);
+   public Object invoke(Object o, String method, JsonObject params, String UID, HttpServletRequest request) {
 
-			if (returns.get("mainReturn") != null) {
+      NGSessionScopeContext.setCurrentContext(UID);
 
-				event.getConnection().write(util.getJson(returns), false);
-			}
-		} catch (SecurityException | ClassNotFoundException | IllegalAccessException | IllegalArgumentException
-				| InvocationTargetException | NoSuchMethodException e) {
+      Map<String, Object> returns = new HashMap<>();
 
-			e.printStackTrace();
-		}
+      try {
 
-	}
+         returns.put("isRT", false);
+         genericInvoke(o, method, params, returns, 0, UID, request);
 
-	public Object invoke(Object o, String method, JsonObject params, String UID) {
+      }
+      catch (Exception e) {
+         e.printStackTrace();
+      }
+      return returns;
+   }
 
-		NGSessionScopeContext.setCurrentContext(UID);
+   private void genericInvoke(Object service, String methodName, JsonObject params, Map<String, Object> returns, long reqID, String UID, HttpServletRequest request) throws SecurityException, ClassNotFoundException, IllegalAccessException, IllegalArgumentException, InvocationTargetException, NoSuchMethodException {
 
-		Map<String, Object> returns = new HashMap<>();
+      Object mainReturn = null;
+      Method m = null;
+      JsonElement argsElem = params.get("args");
 
-		try {
+      if (reqID > 0) {
+         returns.put("reqId", reqID);
+      }
+      if (argsElem != null) {
 
-			returns.put("isRT", false);
-			genericInvoke(o, method, params, returns, 0, UID);
+         JsonArray args = params.get("args").getAsJsonArray();
 
-		} catch (Exception e) {
-			// fire(e);
-			e.printStackTrace();
-		}
+         m = CommonUtils.getMethod(service.getClass(), methodName, args.size());
 
-		return returns;
-	}
+         Pair<Boolean, Map<Integer, String>> ngCast = CommonUtils.getParamCastMap(m);
 
-	private void genericInvoke(Object service, String methodName, JsonObject params, Map<String, Object> returns,
-			long reqID, String UID)
+         Type[] parameters = m.getGenericParameterTypes();
 
-					throws SecurityException, ClassNotFoundException, IllegalAccessException, IllegalArgumentException,
-					InvocationTargetException, NoSuchMethodException {
+         if (parameters.length == args.size()) {
 
-		Object mainReturn = null;
+            List<Object> argsValues = new ArrayList<>();
 
-		Method m = null;
+            for (int i = 0; i < parameters.length; i++) {
 
-		JsonElement argsElem = params.get("args");
+               JsonElement element = args.get(i);
 
-		// returns.put("isRT", false);
+               Type type = null;
+               if (ngCast != null) {
+                  type = CommonUtils.getParamType(service, ngCast.getValue().get(i), ngCast.getKey());
+               }
 
-		if (reqID > 0) {
-			returns.put("reqId", reqID);
-		}
-		if (argsElem != null) {
+               if (element.isJsonPrimitive()) {
+
+                  Class<?> clazz = null;
 
-			JsonArray args = params.get("args").getAsJsonArray();
+                  String typeString = ((parameters[i]).toString());
+                  if (typeString.startsWith("class")) {
+                     clazz = Class.forName(typeString.substring(6));
+                     if (clazz.equals(Object.class)) {
+                        clazz = CommonUtils.getPrimitiveClass(element);
+                     }
+                  } else {
+                     clazz = builtInMap.get(typeString);
+                  }
 
-			for (Method mt : service.getClass().getMethods()) {
+                  if (clazz.equals(byte[].class) && CommonUtils.getBytesArrayBind().equals(Constants.BASE64_BIND)) {
+                     type = clazz;
+                  }
 
-				if (mt.getName().equals(methodName)) {
+                  String val = element.getAsString();
 
-					Type[] parameters = mt.getParameterTypes();
+                  if (type == null) {
+                     argsValues.add(CommonUtils.convertFromString(val, clazz));
+                  } else {
+                     argsValues.add(util.deserialise(type, element));
+                  }
 
-					if (parameters.length == args.size()) {
+               } else if (element.isJsonArray()) {
 
-						List<Object> argsValues = new ArrayList<>();
+                  JsonArray arr = element.getAsJsonArray();
 
-						for (int i = 0; i < parameters.length; i++) {
+                  if (type == null) {
+                     argsValues.add(util.deserialise(parameters[i], arr));
+                  } else {
+                     argsValues.add(util.deserialise(type, arr));
+                  }
 
-							Class typeClass;
+               } else {
+                  if (type == null) {
+                     argsValues.add(util.deserialise(parameters[i], element));
+                  } else {
+                     argsValues.add(util.deserialise(type, element));
+                  }
+               }
+            }
 
-							String typeString = ((parameters[i]).toString());
+            if (!CommonUtils.isGetter(m)) {
+               update(service, params);
+            }
 
-							if (typeString.startsWith("interface")) {
-								typeString = typeString.substring(10);
+            try {
+               mainReturn = m.invoke(service, argsValues.toArray());
+            }
+            catch (Exception e) {
+               handleException(m, e);
+               e.printStackTrace();
+            }
+         }
+      } else {
+         m = CommonUtils.getMethod(service.getClass(), methodName, 0);
+         // handling methods that took HttpServletRequest as parameter
+         if (!CommonUtils.isGetter(m)) {
+            update(service, params);
+         }
+         mainReturn = m.invoke(service);
+      }
 
-								typeClass = Class.forName(typeString);
+      ModelQueryImpl qImpl = (ModelQueryImpl) modelQueryFactory.get(service.getClass());
 
-							} else {
-								if (typeString.startsWith("class")) {
-									typeString = typeString.substring(6);
+      Map<String, Object> scMap = new HashMap<>(qImpl.getData());
 
-									typeClass = Class.forName(typeString);
+      returns.putAll(scMap);
 
-								}
+      qImpl.getData().clear();
 
-								else {
+      if (!modelQueryFactory.getRootScope().getRootScopeMap().isEmpty()) {
+         returns.put("rootScope", new HashMap<>(modelQueryFactory.getRootScope().getRootScopeMap()));
+         modelQueryFactory.getRootScope().getRootScopeMap().clear();
+      }
 
-									typeClass = builtInMap.get(typeString);
-								}
-							}
+      String[] updates = null;
 
-							JsonElement element = args.get(i);
+      if (m != null && m.isAnnotationPresent(NGReturn.class)) {
 
-							if (element.isJsonPrimitive()) {
+         if (mainReturn == null) mainReturn = "";
 
-								String val = element.getAsString();
+         NGReturn ngReturn = m.getAnnotation(NGReturn.class);
+         updates = ngReturn.updates();
 
-								argsValues.add(CommonUtils.convertFromString(val, typeClass));
+         if (ngReturn.model().length() > 0) {
+            returns.put(ngReturn.model(), mainReturn);
+            Map<String, String> binding = new HashMap<>();
 
-							} else if (element.isJsonArray()) {
+            binding.put("boundTo", ngReturn.model());
 
-								JsonArray arr = element.getAsJsonArray();
+            mainReturn = binding;
+         }
+      }
 
-								argsValues.add(util.deserialise(arrayTypesMap.get(typeString), arr));
+      if (m != null && m.isAnnotationPresent(NGPostConstruct.class)) {
+         NGPostConstruct ngPostConstruct = m.getAnnotation(NGPostConstruct.class);
+         updates = ngPostConstruct.updates();
 
-							} else {
+      }
 
-								argsValues.add(util.deserialise(typeClass, element));
+      if (updates != null) {
+         if ((updates.length == 1) && (updates[0].equals("*"))) {
 
-							}
+            List<String> upd = new ArrayList<>();
+            for (Method met: service.getClass().getDeclaredMethods()) {
 
-						}
+               if (CommonUtils.isGetter(met)) {
 
-						m = mt;
+                  String fieldName = (met.getName()).substring(3);
+                  String firstCar = fieldName.substring(0, 1);
+                  upd.add((firstCar.toLowerCase() + fieldName.substring(1)));
 
-						if (!CommonUtils.isGetter(m)) {
-							// if(util.isSetter(m)){
-							update(service, params);
-							// }
+               }
+            }
 
-						}
+            updates = new String[upd.size()];
 
-						String exceptionString = "";
-						try {
+            for (int i = 0; i < upd.size(); i++) {
+               updates[i] = upd.get(i);
+            }
+         }
+      }
 
-							mainReturn = m.invoke(service, argsValues.toArray());
+      if (updates != null) {
+         for (String up: updates) {
 
-						} catch (Exception e) {
-							handleException(m, e);
+            String getterName = GETTER_PREFIX + up.substring(0, 1).toUpperCase() + up.substring(1);
+            Method getter;
+            try {
+               getter = service.getClass().getMethod(getterName);
+            }
+            catch (NoSuchMethodException e) {
+               getter = service.getClass().getMethod((getterName.replace(GETTER_PREFIX, BOOLEAN_GETTER_PREFIX)));
+            }
 
-							e.printStackTrace();
-						}
+            Object result = getter.invoke(service);
+            returns.put(up, result);
 
-					}
+         }
+      }
 
-				}
+      returns.put("mainReturn", mainReturn);
 
-			}
+      if (!logger.getLogPool().isEmpty()) {
+         returns.put("log", logger.getLogPool().toArray());
+         logger.getLogPool().clear();
+      }
+   }
 
-		}
-		// --------------------------------------------------
+   private void handleException(Method m, Exception e) {
+      Throwable cause = e.getCause();
 
-		else {
+      String exceptionString = m.getName() + " -->" + cause.getClass().getName();
 
-			m = service.getClass().getMethod(methodName);
+      if (cause.getMessage() != null) {
+         exceptionString += " " + cause.getMessage();
+      }
 
-			if (!CommonUtils.isGetter(m)) {
-				// if(util.isSetter(m)){
-				update(service, params);
-				// }
+      logger.log(Level.ERROR, exceptionString);
 
-			}
+   }
 
-			try {
+   private void update(Object o, JsonObject params) {
 
-			} catch (Exception e) {
-				handleException(m, e);
-				e.printStackTrace();
-			}
-			mainReturn = m.invoke(service);
+      if (params != null) {
 
-		}
+         for (Map.Entry<String, JsonElement> entry: params.entrySet()) {
 
-		// 1
+            JsonElement value = entry.getValue();
+            String name = entry.getKey();
 
-		// modelQueryFactory=(ModelQueryFactory)
-		// locator.lookup("ModelQueryFactory",UID );
+            if ((name.equals("sessionUID")) || (name.equals("args"))) {
+               continue;
+            }
 
-		ModelQueryImpl qImpl = (ModelQueryImpl) modelQueryFactory.get(service.getClass());
+            if ((value.isJsonObject()) && (!value.isJsonNull())) {
 
-		Map<String, Object> scMap = new HashMap<>(qImpl.getData());
+               String getName;
+               try {
+                  getName = CommonUtils.obtainGetter(o.getClass().getDeclaredField(name));
 
-		returns.putAll(scMap);
+                  Method getter = o.getClass().getMethod(getName);
 
-		qImpl.getData().clear();
+                  Object subObj = getter.invoke(o);
 
-		if (!modelQueryFactory.getRootScope().getRootScopeMap().isEmpty()) {
-			returns.put("rootScope", new HashMap<>(modelQueryFactory.getRootScope().getRootScopeMap()));
-			modelQueryFactory.getRootScope().getRootScopeMap().clear();
-		}
+                  update(subObj, value.getAsJsonObject());
 
-		String[] updates = null;
+               }
+               catch (NoSuchFieldException | SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException e) {
 
-		// if ((m.isAnnotationPresent(NGReturn.class))
-		// || (m.isAnnotationPresent(NGPostConstruct.class))
-		// ) {
+                  e.printStackTrace();
+               }
 
-		// if((returns.size()>0)&& (mainReturn==null))mainReturn="";
+            }
+            if (value.isJsonArray()) {
 
-		if (m.isAnnotationPresent(NGReturn.class)) {
+               try {
+                  String getter = CommonUtils.obtainGetter(o.getClass().getDeclaredField(name));
 
-			if (mainReturn == null)
-				mainReturn = "";
+                  Method get = o.getClass().getDeclaredMethod(getter);
 
-			NGReturn ngReturn = m.getAnnotation(NGReturn.class);
-			updates = ngReturn.updates();
+                  Type type = get.getGenericReturnType();
+                  ParameterizedType pt = (ParameterizedType) type;
+                  Type actType = pt.getActualTypeArguments()[0];
 
-			if (ngReturn.model().length() > 0) {
-				returns.put(ngReturn.model(), mainReturn);
-				Map<String, String> binding = new HashMap<>();
+                  String className = actType.toString();
 
-				binding.put("boundTo", ngReturn.model());
+                  className = className.substring(className.indexOf("class") + 6);
+                  Class clazz = Class.forName(className);
 
-				mainReturn = binding;
-			}
-		}
+                  JsonArray array = value.getAsJsonArray();
 
-		if (m.isAnnotationPresent(NGPostConstruct.class)) {
-			NGPostConstruct ngPostConstruct = m.getAnnotation(NGPostConstruct.class);
-			updates = ngPostConstruct.updates();
+                  Collection collection = (Collection) get.invoke(o);
+                  Object elem;
+                  for (JsonElement element: array) {
+                     if (element.isJsonPrimitive()) {
+                        JsonPrimitive primitive = element.getAsJsonPrimitive();
 
-		}
+                        elem = element;
+                        if (primitive.isBoolean()) elem = primitive.getAsBoolean();
+                        if (primitive.isString()) {
+                           elem = primitive.getAsString();
+                        }
+                        if (primitive.isNumber()) elem = primitive.isNumber();
 
-		if (updates != null) {
-			if ((updates.length == 1) && (updates[0].equals("*"))) {
+                     } else {
 
-				List<String> upd = new ArrayList<>();
-				for (Method met : service.getClass().getDeclaredMethods()) {
+                        elem = util.deserialise(clazz, element);
+                     }
 
-					if (CommonUtils.isGetter(met)) {
+                     try {
 
-						String fieldName = (met.getName()).substring(3);
-						String firstCar = fieldName.substring(0, 1);
-						upd.add((firstCar.toLowerCase() + fieldName.substring(1)));
+                        if (collection instanceof List) {
 
-					}
-				}
+                           if (collection.contains(elem)) collection.remove(elem);
+                        }
 
-				updates = new String[upd.size()];
+                        collection.add(elem);
+                     }
+                     catch (UnsupportedOperationException e) {
+                        Logger.getLogger("AngularBeans").log(java.util.logging.Level.WARNING, "trying to modify an immutable collection : " + name);
+                     }
 
-				for (int i = 0; i < upd.size(); i++) {
-					updates[i] = upd.get(i);
-				}
+                  }
 
-			}
-		}
+               }
+               catch (Exception e) {
+                  e.printStackTrace();
 
-		if (updates != null) {
-			for (String up : updates) {
+               }
+            }
 
-				String getterName = GET + up.substring(0, 1).toUpperCase() + up.substring(1);
-				Method getter;
-				try {
-					getter = service.getClass().getMethod(getterName);
-				} catch (NoSuchMethodException e) {
-					getter = service.getClass().getMethod((getterName.replace(GET, "is")));
-				}
+            // ------------------------------------------
+            if (value.isJsonPrimitive() && (!name.equals("setSessionUID"))) {
+               try {
 
-				Object result = getter.invoke(service);
-				returns.put(up, result);
+                  if (!CommonUtils.hasSetter(o.getClass(), name)) {
+                     continue;
+                  }
+                  name = "set" + name.substring(0, 1).toUpperCase() + name.substring(1);
 
-			}
-		}
+                  Class type = null;
+                  for (Method set: o.getClass().getDeclaredMethods()) {
+                     if (CommonUtils.isSetter(set)) {
+                        if (set.getName().equals(name)) {
+                           Class<?>[] pType = set.getParameterTypes();
 
-		// }
+                           type = pType[0];
+                           break;
 
-		// if (m.isAnnotationPresent(NGReturn.class)) {
+                        }
+                     }
 
-		returns.put("mainReturn", mainReturn);
+                  }
 
-		if (!logger.getLogPool().isEmpty()) {
-			returns.put("log", logger.getLogPool().toArray());
-			logger.getLogPool().clear();
-		}
+                  if (type.equals(LobWrapper.class)) continue;
 
-		// }
+                  Object param = null;
+                  if ((params.entrySet().size() >= 1) && (type != null)) {
 
-	}
+                     param = CommonUtils.convertFromString(value.getAsString(), type);
 
-	private void handleException(Method m, Exception e) {
-		Throwable cause = e.getCause();
+                  }
 
-		String exceptionString = m.getName() + " -->" + cause.getClass().getName();
+                  o.getClass().getMethod(name, type).invoke(o, param);
 
-		if (cause.getMessage() != null) {
-			exceptionString += " " + cause.getMessage();
-		}
+               }
+               catch (Exception e) {
+                  e.printStackTrace();
 
-		logger.log(Level.ERROR, exceptionString);
-
-	}
-
-	private void update(Object o, JsonObject params) {
-
-		if (params != null) {
-
-			// boolean firstIn = false;
-
-			for (Map.Entry<String, JsonElement> entry : params.entrySet()) {
-
-				JsonElement value = entry.getValue();
-				String name = entry.getKey();
-
-				if ((name.equals("sessionUID")) || (name.equals("args"))) {
-					continue;
-				}
-
-				if ((value.isJsonObject()) && (!value.isJsonNull())) {
-
-					String getName;
-					try {
-						getName = CommonUtils.obtainGetter(o.getClass().getDeclaredField(name));
-
-						Method getter = o.getClass().getMethod(getName);
-
-						Object subObj = getter.invoke(o);
-
-						// logger.log(Level.INFO, "#entring sub object "+name);
-						update(subObj, value.getAsJsonObject());
-
-					} catch (NoSuchFieldException | SecurityException | IllegalAccessException
-							| IllegalArgumentException | InvocationTargetException | NoSuchMethodException e) {
-
-						e.printStackTrace();
-					}
-
-				}
-				// ------------------------------------
-				if (value.isJsonArray()) {
-
-					try {
-						String getter = CommonUtils.obtainGetter(o.getClass().getDeclaredField(name));
-
-						Method get = o.getClass().getDeclaredMethod(getter);
-
-						Type type = get.getGenericReturnType();
-						ParameterizedType pt = (ParameterizedType) type;
-						Type actType = pt.getActualTypeArguments()[0];
-
-						// Class collectionClazz = get.getReturnType();
-
-						String className = actType.toString();
-
-						className = className.substring(className.indexOf("class") + 6);
-						Class clazz = Class.forName(className);
-
-						JsonArray array = value.getAsJsonArray();
-
-						Collection collection = (Collection) get.invoke(o);
-						Object elem;
-						for (JsonElement element : array) {
-							if (element.isJsonPrimitive()) {
-								JsonPrimitive primitive = element.getAsJsonPrimitive();
-
-								elem = element;
-								if (primitive.isBoolean())
-									elem = primitive.getAsBoolean();
-								if (primitive.isString()) {
-									elem = primitive.getAsString();
-								}
-								if (primitive.isNumber())
-									elem = primitive.isNumber();
-
-							} else {
-
-								elem = util.deserialise(clazz, element);
-
-							}
-
-							// if (collection instanceof AbstractCollection) {
-							//
-							// ArrayList list=new ArrayList();
-							// list.addAll(collection);
-							// collection=list;
-							// }
-
-							try {
-
-								if (collection instanceof List) {
-
-									if (collection.contains(elem))
-										collection.remove(elem);
-								}
-
-								collection.add(elem);
-							} catch (UnsupportedOperationException e) {
-								Logger.getLogger("AngularBeans").log(java.util.logging.Level.WARNING,
-										"trying to modify an immutable collection : " + name);
-							}
-
-						}
-
-					} catch (Exception e) {
-						e.printStackTrace();
-
-					}
-
-				}
-
-				// ------------------------------------------
-				if (value.isJsonPrimitive() && (!name.equals("setSessionUID"))) {
-					try {
-
-						if (!CommonUtils.hasSetter(o.getClass(), name)) {
-							continue;
-						}
-						name = "set" + name.substring(0, 1).toUpperCase() + name.substring(1);
-
-						Class type = null;
-						for (Method set : o.getClass().getDeclaredMethods()) {
-							if (CommonUtils.isSetter(set)) {
-								if (set.getName().equals(name)) {
-									Class<?>[] pType = set.getParameterTypes();
-
-									type = pType[0];
-									break;
-
-								}
-							}
-
-						}
-
-						if (type.equals(LobWrapper.class))
-							continue;
-
-						Object param = null;
-						if ((params.entrySet().size() >= 1) && (type != null)) {
-
-							param = CommonUtils.convertFromString(value.getAsString(), type);
-
-						}
-
-						o.getClass().getMethod(name, type).invoke(o, param);
-
-					} catch (Exception e) {
-						// fire(e);
-						e.printStackTrace();
-
-					}
-				}
-
-			}
-		}
-
-	}
-
+               }
+            }
+         }
+      }
+   }
 }
